@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace SimpleHTTPServer
 {
@@ -11,12 +12,17 @@ namespace SimpleHTTPServer
     {
         Scoped, Tranisent, Singleton
     }
-    public class ServiceDescriptor
+    public class ServiceDescriptor : ICloneable
     {
         public Type InterfaceType { get; set; }
         public Type InstanceType { get; set; }
         public object Instance { get; set; }
         public ServiceMode Mode { get; set; }
+
+        public object Clone()
+        {
+            return MemberwiseClone();
+        }
     }
     public class WebHostBuilder
     {
@@ -48,12 +54,10 @@ namespace SimpleHTTPServer
 
         public WebHostBuilder AddTranisent<I, T>(Action<T> config = null) where T : I, new()
         {
-            I instance = new T();
             serviceCollection.Add(new ServiceDescriptor
             {
                 InterfaceType = typeof(I),
                 InstanceType = typeof(T),
-                Instance = instance,
                 Mode = ServiceMode.Tranisent
             });
             return this;
@@ -94,11 +98,17 @@ namespace SimpleHTTPServer
                 {
                     Task.Run(async () =>
                     {
+                        Console.WriteLine($"Received HTTP request");
                         var context = await con;
                         var request = context.Request;
                         var response = context.Response;
                         response.StatusCode = 200;
-                        foreach (var service in serviceCollection)
+                        var collection = serviceCollection.ConvertAll(i => i.Clone() as ServiceDescriptor);
+                        foreach (var i in collection.Where(i => i.Mode != ServiceMode.Singleton))
+                        {
+                            i.Instance = null;
+                        }
+                        foreach (var service in collection)
                         {
                             var param = service.InstanceType.GetMethod("Process").GetParameters();
                             var paramList = new List<object>();
@@ -113,10 +123,11 @@ namespace SimpleHTTPServer
                                     {
                                         case ServiceMode.Tranisent:
                                         case ServiceMode.Scoped:
-                                            paramList.Add(serviceCollection.FirstOrDefault(i => i.InterfaceType.AssemblyQualifiedName == type)?.Instance ?? CreateInstance(service, request, response));
+                                            paramList.Add(collection.FirstOrDefault(i => i.InterfaceType.AssemblyQualifiedName == type)?.Instance ?? CreateInstance(service, request, response));
                                             break;
                                         case ServiceMode.Singleton:
-                                            paramList.Add(serviceCollection.FirstOrDefault(i => i.InterfaceType.AssemblyQualifiedName == type)?.Instance ?? throw new InvalidOperationException($"No instance for parameter: {p.Name}"));
+                                            Debug.Assert(service.Instance != null);
+                                            paramList.Add(collection.FirstOrDefault(i => i.InterfaceType.AssemblyQualifiedName == type)?.Instance ?? throw new InvalidOperationException($"No instance for parameter: {p.Name}"));
                                             break;
                                     }
 
@@ -128,17 +139,15 @@ namespace SimpleHTTPServer
                                 if (instance == null) instance = CreateInstance(service, request, response);
                                 instance.GetType().GetMethod("Process").Invoke(instance, paramList.ToArray());
                             }
-                            catch
+                            catch (Exception ex)
                             {
+                                Console.WriteLine(ex.Message);
                                 response.StatusCode = 500;
-                                response.Close();
+                                break;
                             }
                         }
-                        foreach (var i in serviceCollection.Where(i => i.Mode != ServiceMode.Singleton))
-                        {
-                            i.Instance = null;
-                        }
                         response.Close();
+                        Console.WriteLine($"HTTP request finished: {response.StatusCode}");
                     });
                 }, null);
             }

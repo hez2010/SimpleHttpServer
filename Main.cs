@@ -20,8 +20,7 @@ namespace SimpleHTTPServer
         public void Counter()
         {
             counter++;
-            Console.Write("Singleton: ");
-            Console.WriteLine(counter);
+            Console.WriteLine($"Singleton: {counter}");
         }
     }
 
@@ -40,8 +39,7 @@ namespace SimpleHTTPServer
         public void Counter()
         {
             counter++;
-            Console.Write("Scoped: ");
-            Console.WriteLine(counter);
+            Console.WriteLine($"Scoped: {counter}");
         }
     }
     interface ITest3
@@ -59,8 +57,7 @@ namespace SimpleHTTPServer
         public void Counter()
         {
             counter++;
-            Console.Write("Tranisent: ");
-            Console.WriteLine(counter);
+            Console.WriteLine($"Tranisent: {counter}");
         }
     }
     internal class Program
